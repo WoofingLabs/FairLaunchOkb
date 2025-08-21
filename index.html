@@ -116,7 +116,27 @@
                 }
                 accounts = await web3.eth.getAccounts();
                 resolverContract = new web3.eth.Contract(resolverContractABI, resolverAddress);
-                document.getElementById('walletStatus').innerText = `Connected: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`;
+                
+                // Fetch domain name for the connected address
+                let displayText = accounts[0].slice(0, 6) + '...' + accounts[0].slice(-4); // Default to address
+                try {
+                    const supportedContracts = [
+                        { suffix: '.okb', address: '0xBf13Ed020DCF22bc8216A23A1167A5dD1fDC2D0E' },
+                        { suffix: '.star', address: '0xfD809E6c00b7ABD737C3FaDFCaFAF4b6564AF9dD' },
+                        { suffix: '.xdog', address: '0x68B6387628b4096af034c3a9de3073AB18E744C2' }
+                    ];
+                    for (const { address } of supportedContracts) {
+                        const [domainName] = await resolverContract.methods.getDomainByAddress(address, accounts[0]).call();
+                        if (domainName && domainName !== '') {
+                            displayText = domainName;
+                            break;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error fetching domain:', error);
+                }
+                
+                document.getElementById('walletStatus').innerText = `Connected: ${displayText}`;
                 enableInputs(true);
                 fetchContractInfo();
                 fetchBalance();
