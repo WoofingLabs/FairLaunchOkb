@@ -3,28 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X Layer Inscription Web Wallet - FairLaunchOkb</title>
+    <title>X Layer Inscription Launchpad - FairLaunchOkb</title>
     <link rel="icon" href="https://woofingjace.com/images/jace.png" type="image/x-icon">
     <style>
         body { background: #000000; font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #ffffff; }
-        .container { max-width: 600px; margin: 0 auto; background: #1a1a1a; padding: 20px; border-radius: 8px; }
+        .container { max-width: 800px; margin: 0 auto; background: #1a1a1a; padding: 20px; border-radius: 8px; }
         h1 { text-align: center; font-size: 24px; margin-bottom: 20px; }
         .section { margin-bottom: 20px; }
         label { display: block; margin-bottom: 5px; }
         input { width: 100%; padding: 8px; margin-bottom: 10px; background: #2d2d2d; border: 1px solid #444444; color: #ffffff; border-radius: 4px; }
         button { background: #333333; color: #ffffff; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px; }
         button:hover { background: #444444; }
-        .percent-buttons { margin: 10px 0; }
-        .percent-buttons button { margin-right: 5px; }
         .status { margin-top: 10px; font-size: 14px; }
         .balance { margin: 10px 0; }
         .disabled { opacity: 0.5; pointer-events: none; }
         .contract-info { font-size: 14px; margin-bottom: 10px; }
+        .deployed-contracts { margin-top: 20px; }
+        .deployed-contracts div { margin-bottom: 5px; cursor: pointer; }
+        .deployed-contracts div:hover { color: #00ff00; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>X Layer Inscription Web Wallet - FairLaunchOkb</h1>
+        <h1>X Layer Inscription Launchpad - FairLaunchOkb</h1>
         <div class="section">
             <button id="connectWallet" class="button">Connect Wallet</button>
             <div id="walletStatus" class="status">Not connected</div>
@@ -35,27 +36,39 @@
             <div id="addressResult" class="status"></div>
         </div>
         <div class="section">
-            <label for="tokenContract">Enter FairLaunchOkb Contract Address:</label>
-            <input type="text" id="tokenContract" placeholder="e.g., 0x..." value="0x8969a8D57F82958BbD91bD19d49f1B4D98F0374b" disabled>
-            <div id="contractInfo" class="contract-info"></div>
-            <div id="balanceResult" class="balance"></div>
+            <label for="launchPadAddress">Enter JaceLaunchPad Address:</label>
+            <input type="text" id="launchPadAddress" placeholder="e.g., 0x..." value="0x8969a8D57F82958BbD91bD19d49f1B4D98F0374b" disabled>
         </div>
         <div class="section">
-            <label for="amount">ETH Amount to Mint:</label>
-            <input type="number" id="amount" placeholder="0.0" step="0.0001" disabled>
-            <div class="percent-buttons">
-                <button onclick="setPercent(25)" disabled>25%</button>
-                <button onclick="setPercent(50)" disabled>50%</button>
-                <button onclick="setPercent(75)" disabled>75%</button>
-                <button onclick="setPercent(100)" disabled>100%</button>
-            </div>
-            <button id="mintButton" onclick="mintTokens()" disabled>Mint Tokens</button>
+            <label for="price">Price (ETH per unit):</label>
+            <input type="number" id="price" placeholder="0.0" step="0.0001" disabled>
+            <label for="amountPerUnits">Tokens per Unit:</label>
+            <input type="number" id="amountPerUnits" placeholder="0" step="1" disabled>
+            <label for="totalSupply">Total Supply (tokens):</label>
+            <input type="number" id="totalSupply" placeholder="0" step="1" disabled>
+            <label for="launcher">Launcher Address:</label>
+            <input type="text" id="launcher" placeholder="e.g., 0x..." disabled>
+            <label for="uniswapRouter">Uniswap Router Address:</label>
+            <input type="text" id="uniswapRouter" placeholder="e.g., 0x..." value="0xdf7837e3E180CeAdE46133946cb1c7c9ECB47F8E" disabled>
+            <label for="uniswapFactory">Uniswap Factory Address:</label>
+            <input type="text" id="uniswapFactory" placeholder="e.g., 0x..." value="0x40E9fC0A18ccfDc87C19A1bA5b7F84FC51879600" disabled>
+            <label for="name">Token Name:</label>
+            <input type="text" id="name" placeholder="e.g., JaceToken" disabled>
+            <label for="symbol">Token Symbol:</label>
+            <input type="text" id="symbol" placeholder="e.g., JACE" disabled>
+            <label for="eachAddressLimitEthers">Per Address ETH Limit:</label>
+            <input type="number" id="eachAddressLimitEthers" placeholder="0.0" step="0.0001" disabled>
+            <button id="launchButton" onclick="launchToken()" disabled>Launch Token</button>
             <div id="transactionStatus" class="status"></div>
+        </div>
+        <div class="section deployed-contracts">
+            <h3>Deployed Token Contracts</h3>
+            <div id="deployedContracts"></div>
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/web3@1.7.0/dist/web3.min.js"></script>
     <script>
-        let web3, accounts, resolverContract, tokenContract;
+        let web3, accounts, resolverContract, launchPadContract;
 
         const resolverAddress = '0x51AEfC36203F0B3612e15c168aDE8ec2401A1507';
         const resolverContractABI = [
@@ -71,33 +84,12 @@
             {"inputs":[{"internalType":"address","name":"user","type":"address"}],"name":"addressToTokenId","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
         ];
 
-        const tokenContractABI = [
-            {"inputs":[{"internalType":"uint256","name":"_price","type":"uint256"},{"internalType":"uint256","name":"_amountPerUnits","type":"uint256"},{"internalType":"uint256","name":"totalSupply","type":"uint256"},{"internalType":"address","name":"_luncher","type":"address"},{"internalType":"address","name":"_uniswapRouter","type":"address"},{"internalType":"address","name":"_uniswapFactory","type":"address"},{"internalType":"string","name":"_name","type":"string"},{"internalType":"string","name":"_symbol","type":"string"},{"internalType":"uint256","name":"_eachAddressLimitEthers","type":"uint256"}],"stateMutability":"nonpayable","type":"constructor"},
-            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"owner","type":"address"},{"indexed":true,"internalType":"address","name":"spender","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Approval","type":"event"},
-            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"ethAmount","type":"uint256"}],"name":"FairMinted","type":"event"},
-            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"ethAmount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"liquidity","type":"uint256"}],"name":"LunchEvent","type":"event"},
-            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"bnb","type":"uint256"}],"name":"RefundEvent","type":"event"},
-            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Transfer","type":"event"},
-            {"stateMutability":"payable","type":"receive"},
-            {"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-            {"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
-            {"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"decimals","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"eachAddressLimitEthers","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"launcher","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"mintLimit","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"minted","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"price","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"amountPerUnits","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"started","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"totalSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-            {"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
-            {"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transferFrom","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
-            {"inputs":[],"name":"uniswapFactory","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"uniswapRouter","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
-            {"inputs":[],"name":"start","outputs":[],"stateMutability":"nonpayable","type":"function"}
+        const launchPadABI = [
+            {"inputs":[],"stateMutability":"nonpayable","type":"constructor"},
+            {"inputs":[{"internalType":"uint256","name":"_price","type":"uint256"},{"internalType":"uint256","name":"_amountPerUnits","type":"uint256"},{"internalType":"uint256","name":"totalSupply","type":"uint256"},{"internalType":"address","name":"_luncher","type":"address"},{"internalType":"string","name":"_name","type":"string"},{"internalType":"string","name":"_symbol","type":"string"},{"internalType":"uint256","name":"_eachAddressLimitEthers","type":"uint256"}],"name":"launchOkb","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[],"name":"launchLength","outputs":[{"internalType":"uint","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"uint256","name":"_idx","type":"uint256"}],"name":"launchDetail","outputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"address","name":"","type":"address"},{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"_token","type":"address"}],"name":"tokenLaunch","outputs":[{"internalType":"bool","name":"","type":"bool"},{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
         ];
 
         const xLayer = { chainId: 196, rpcUrl: 'https://rpc.xlayer.tech' };
@@ -138,8 +130,7 @@
                 
                 document.getElementById('walletStatus').innerText = `Connected: ${displayText}`;
                 enableInputs(true);
-                fetchContractInfo();
-                fetchBalance();
+                fetchDeployedContracts();
             } catch (error) {
                 document.getElementById('walletStatus').innerText = 'Failed to connect: ' + error.message;
             }
@@ -147,10 +138,17 @@
 
         function enableInputs(enabled) {
             document.getElementById('domainInput').disabled = !enabled;
-            document.getElementById('tokenContract').disabled = !enabled;
-            document.getElementById('amount').disabled = !enabled;
-            document.querySelectorAll('.percent-buttons button').forEach(btn => btn.disabled = !enabled);
-            document.getElementById('mintButton').disabled = !enabled;
+            document.getElementById('launchPadAddress').disabled = !enabled;
+            document.getElementById('price').disabled = !enabled;
+            document.getElementById('amountPerUnits').disabled = !enabled;
+            document.getElementById('totalSupply').disabled = !enabled;
+            document.getElementById('launcher').disabled = !enabled;
+            document.getElementById('uniswapRouter').disabled = !enabled;
+            document.getElementById('uniswapFactory').disabled = !enabled;
+            document.getElementById('name').disabled = !enabled;
+            document.getElementById('symbol').disabled = !enabled;
+            document.getElementById('eachAddressLimitEthers').disabled = !enabled;
+            document.getElementById('launchButton').disabled = !enabled;
         }
 
         async function resolveAddress() {
@@ -179,129 +177,86 @@
             }
         }
 
-        async function fetchContractInfo() {
-            const tokenContractAddress = document.getElementById('tokenContract').value.trim();
-            if (!web3 || !accounts || !web3.utils.isAddress(tokenContractAddress)) {
-                document.getElementById('contractInfo').innerText = 'Invalid contract address or wallet not connected.';
+        async function fetchDeployedContracts() {
+            const launchPadAddress = document.getElementById('launchPadAddress').value.trim();
+            if (!web3 || !accounts || !web3.utils.isAddress(launchPadAddress)) {
+                document.getElementById('deployedContracts').innerText = 'Invalid launchpad address or wallet not connected.';
                 return;
             }
             try {
-                tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress);
-                const [name, symbol, price, amountPerUnits, mintLimit, minted, eachAddressLimitEthers, started] = await Promise.all([
-                    tokenContract.methods.name().call(),
-                    tokenContract.methods.symbol().call(),
-                    tokenContract.methods.price().call(),
-                    tokenContract.methods.amountPerUnits().call(),
-                    tokenContract.methods.mintLimit().call(),
-                    tokenContract.methods.minted().call(),
-                    tokenContract.methods.eachAddressLimitEthers().call(),
-                    tokenContract.methods.started().call()
-                ]);
-                document.getElementById('contractInfo').innerHTML = `
-                    Token: ${name} (${symbol})<br>
-                    Price: ${web3.utils.fromWei(price, 'ether')} ETH per unit<br>
-                    Tokens per Unit: ${web3.utils.fromWei(amountPerUnits, 'ether')}<br>
-                    Mint Limit: ${web3.utils.fromWei(mintLimit, 'ether')} tokens<br>
-                    Minted: ${web3.utils.fromWei(minted, 'ether')} tokens<br>
-                    Per Address Limit: ${web3.utils.fromWei(eachAddressLimitEthers, 'ether')} ETH<br>
-                    Status: ${started ? 'Started' : 'Not Started'}
-                `;
-                if (started) {
-                    document.getElementById('mintButton').disabled = true;
-                    document.getElementById('amount').disabled = true;
-                    document.querySelectorAll('.percent-buttons button').forEach(btn => btn.disabled = true);
-                    document.getElementById('transactionStatus').innerText = 'Minting has ended.';
+                launchPadContract = new web3.eth.Contract(launchPadABI, launchPadAddress);
+                const length = await launchPadContract.methods.launchLength().call();
+                let contractsHtml = '';
+                for (let i = 0; i < length; i++) {
+                    const [tokenAddress, launchTime, launchType, spendToken, creator] = await launchPadContract.methods.launchDetail(i).call();
+                    if (launchType === '1') { // Type 1 is Okb
+                        const launchTimeDate = new Date(launchTime * 1000).toLocaleString();
+                        contractsHtml += `<div onclick="copyToClipboard('${tokenAddress}')" title="Click to copy">${tokenAddress} (Launched: ${launchTimeDate}, Creator: ${creator.slice(0, 6)}...${creator.slice(-4)})</div>`;
+                    }
                 }
+                document.getElementById('deployedContracts').innerHTML = contractsHtml || 'No deployed Okb tokens found.';
             } catch (error) {
-                document.getElementById('contractInfo').innerText = 'Error fetching contract info: ' + error.message;
+                document.getElementById('deployedContracts').innerText = 'Error fetching deployed contracts: ' + error.message;
             }
         }
 
-        async function fetchBalance() {
-            if (!web3 || !accounts) {
-                document.getElementById('balanceResult').innerText = 'Please connect wallet first.';
-                return;
-            }
-            const tokenContractAddress = document.getElementById('tokenContract').value.trim();
-            if (!web3.utils.isAddress(tokenContractAddress)) {
-                document.getElementById('balanceResult').innerText = 'Invalid token contract address.';
-                return;
-            }
-            try {
-                tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress);
-                const [ethBalance, tokenBalance] = await Promise.all([
-                    web3.eth.getBalance(accounts[0]),
-                    tokenContract.methods.balanceOf(accounts[0]).call()
-                ]);
-                document.getElementById('balanceResult').innerText = `ETH Balance: ${web3.utils.fromWei(ethBalance, 'ether')} ETH\nToken Balance: ${web3.utils.fromWei(tokenBalance, 'ether')} tokens`;
-            } catch (error) {
-                document.getElementById('balanceResult').innerText = 'Error fetching balance: ' + error.message;
-            }
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copied to clipboard: ' + text);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
         }
 
-        function setPercent(percent) {
-            const balanceText = document.getElementById('balanceResult').innerText;
-            if (!balanceText.includes('ETH Balance:')) return;
-            let ethBalance = parseFloat(balanceText.split('ETH Balance: ')[1].split(' ETH')[0]);
-            let amount = (ethBalance * percent / 100).toFixed(4);
-            if (percent === 100) amount = (ethBalance - 0.0001).toFixed(4); // Reserve some ETH for gas
-            document.getElementById('amount').value = amount > 0 ? amount : 0;
-        }
-
-        async function mintTokens() {
+        async function launchToken() {
             if (!web3 || !accounts) {
                 document.getElementById('transactionStatus').innerText = 'Please connect wallet first.';
                 return;
             }
-            const tokenContractAddress = document.getElementById('tokenContract').value.trim();
-            if (!web3.utils.isAddress(tokenContractAddress)) {
-                document.getElementById('transactionStatus').innerText = 'Invalid token contract address.';
+            const launchPadAddress = document.getElementById('launchPadAddress').value.trim();
+            if (!web3.utils.isAddress(launchPadAddress)) {
+                document.getElementById('transactionStatus').innerText = 'Invalid launchpad address.';
                 return;
             }
-            const amount = document.getElementById('amount').value;
-            if (!amount || amount <= 0) {
-                document.getElementById('transactionStatus').innerText = 'Please enter a valid ETH amount.';
+            const price = document.getElementById('price').value;
+            const amountPerUnits = document.getElementById('amountPerUnits').value;
+            const totalSupply = document.getElementById('totalSupply').value;
+            const launcher = document.getElementById('launcher').value;
+            const uniswapRouter = document.getElementById('uniswapRouter').value;
+            const uniswapFactory = document.getElementById('uniswapFactory').value;
+            const name = document.getElementById('name').value;
+            const symbol = document.getElementById('symbol').value;
+            const eachAddressLimitEthers = document.getElementById('eachAddressLimitEthers').value;
+
+            if (!price || !amountPerUnits || !totalSupply || !web3.utils.isAddress(launcher) || !web3.utils.isAddress(uniswapRouter) || !web3.utils.isAddress(uniswapFactory) || !name || !symbol || !eachAddressLimitEthers) {
+                document.getElementById('transactionStatus').innerText = 'Please fill all fields with valid values.';
                 return;
             }
+
             try {
-                tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress);
-                const started = await tokenContract.methods.started().call();
-                if (started) {
-                    document.getElementById('transactionStatus').innerText = 'Minting has already started.';
-                    return;
-                }
-                const price = await tokenContract.methods.price().call();
-                const eachAddressLimitEthers = await tokenContract.methods.eachAddressLimitEthers().call();
-                const tokenBalance = await tokenContract.methods.balanceOf(accounts[0]).call();
-                const amountPerUnits = await tokenContract.methods.amountPerUnits().call();
-                const ethSpent = web3.utils.fromWei(tokenBalance, 'ether') * web3.utils.fromWei(price, 'ether') / web3.utils.fromWei(amountPerUnits, 'ether');
-                const ethToSpend = parseFloat(amount);
-                if (ethSpent + ethToSpend > web3.utils.fromWei(eachAddressLimitEthers, 'ether')) {
-                    document.getElementById('transactionStatus').innerText = 'Exceeds per address ETH limit.';
-                    return;
-                }
-                const units = Math.floor(ethToSpend / web3.utils.fromWei(price, 'ether'));
-                if (units === 0) {
-                    document.getElementById('transactionStatus').innerText = 'ETH amount too low for one unit.';
-                    return;
-                }
-                const weiValue = web3.utils.toWei((units * web3.utils.fromWei(price, 'ether')).toString(), 'ether');
-                const gas = await web3.eth.estimateGas({
-                    from: accounts[0],
-                    to: tokenContractAddress,
-                    value: weiValue
-                });
-                const tx = await web3.eth.sendTransaction({
-                    from: accounts[0],
-                    to: tokenContractAddress,
-                    value: weiValue,
-                    gas: Math.floor(gas * 1.2)
-                });
-                document.getElementById('transactionStatus').innerText = `Mint successful! Tx: ${tx.transactionHash}`;
-                fetchContractInfo();
-                fetchBalance();
+                launchPadContract = new web3.eth.Contract(launchPadABI, launchPadAddress);
+                const gas = await launchPadContract.methods.launchOkb(
+                    web3.utils.toWei(price, 'ether'),
+                    web3.utils.toWei(amountPerUnits, 'ether'),
+                    web3.utils.toWei(totalSupply, 'ether'),
+                    launcher,
+                    name,
+                    symbol,
+                    web3.utils.toWei(eachAddressLimitEthers, 'ether')
+                ).estimateGas({ from: accounts[0] });
+                const tx = await launchPadContract.methods.launchOkb(
+                    web3.utils.toWei(price, 'ether'),
+                    web3.utils.toWei(amountPerUnits, 'ether'),
+                    web3.utils.toWei(totalSupply, 'ether'),
+                    launcher,
+                    name,
+                    symbol,
+                    web3.utils.toWei(eachAddressLimitEthers, 'ether')
+                ).send({ from: accounts[0], gas: Math.floor(gas * 1.2) });
+                document.getElementById('transactionStatus').innerText = `Token launched successfully! Tx: ${tx.transactionHash}`;
+                fetchDeployedContracts();
             } catch (error) {
-                document.getElementById('transactionStatus').innerText = 'Mint failed: ' + error.message;
+                document.getElementById('transactionStatus').innerText = 'Launch failed: ' + error.message;
             }
         }
 
@@ -309,11 +264,8 @@
         document.getElementById('domainInput').addEventListener('input', () => {
             if (web3 && accounts) resolveAddress();
         });
-        document.getElementById('tokenContract').addEventListener('input', () => {
-            if (web3 && accounts) {
-                fetchContractInfo();
-                fetchBalance();
-            }
+        document.getElementById('launchPadAddress').addEventListener('input', () => {
+            if (web3 && accounts) fetchDeployedContracts();
         });
     </script>
 </body>
