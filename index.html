@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X Layer Inscription Web Wallet - FairLaunchOkb</title>
+    <link rel="icon" href="https://woofingjace.com/images/jace.png" type="image/x-icon">
+    <style>
+        body { background: #000000; font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #ffffff; }
+        .container { max-width: 600px; margin: 0 auto; background: #1a1a1a; padding: 20px; border-radius: 8px; }
+        h1 { text-align: center; font-size: 24px; margin-bottom: 20px; }
+        .section { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; }
+        input { width: 100%; padding: 8px; margin-bottom: 10px; background: #2d2d2d; border: 1px solid #444444; color: #ffffff; border-radius: 4px; }
+        button { background: #333333; color: #ffffff; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px; }
+        button:hover { background: #444444; }
+        .percent-buttons { margin: 10px 0; }
+        .percent-buttons button { margin-right: 5px; }
+        .status { margin-top: 10px; font-size: 14px; }
+        .balance { margin: 10px 0; }
+        .disabled { opacity: 0.5; pointer-events: none; }
+        .contract-info { font-size: 14px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>X Layer Inscription Web Wallet - FairLaunchOkb</h1>
+        <div class="section">
+            <button id="connectWallet" class="button">Connect Wallet</button>
+            <div id="walletStatus" class="status">Not connected</div>
+        </div>
+        <div class="section">
+            <label for="domainInput">Enter Domain (e.g., jace.okb):</label>
+            <input type="text" id="domainInput" placeholder="e.g., jace.okb" disabled>
+            <div id="addressResult" class="status"></div>
+        </div>
+        <div class="section">
+            <label for="tokenContract">Enter FairLaunchOkb Contract Address:</label>
+            <input type="text" id="tokenContract" placeholder="e.g., 0x..." value="0x8969a8D57F82958BbD91bD19d49f1B4D98F0374b" disabled>
+            <div id="contractInfo" class="contract-info"></div>
+            <div id="balanceResult" class="balance"></div>
+        </div>
+        <div class="section">
+            <label for="amount">ETH Amount to Mint:</label>
+            <input type="number" id="amount" placeholder="0.0" step="0.0001" disabled>
+            <div class="percent-buttons">
+                <button onclick="setPercent(25)" disabled>25%</button>
+                <button onclick="setPercent(50)" disabled>50%</button>
+                <button onclick="setPercent(75)" disabled>75%</button>
+                <button onclick="setPercent(100)" disabled>100%</button>
+            </div>
+            <button id="mintButton" onclick="mintTokens()" disabled>Mint Tokens</button>
+            <div id="transactionStatus" class="status"></div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.7.0/dist/web3.min.js"></script>
+    <script>
+        let web3, accounts, resolverContract, tokenContract;
+
+        const resolverAddress = '0x51AEfC36203F0B3612e15c168aDE8ec2401A1507';
+        const resolverContractABI = [
+            {"inputs":[{"internalType":"address","name":"contractAddress","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"bindDomain","outputs":[],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"unbindDomain","outputs":[],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[{"internalType":"address","name":"contractAddress","type":"address"},{"internalType":"string","name":"domainName","type":"string"}],"name":"getAddressByDomain","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"user","type":"address"}],"name":"getDomainByAddress","outputs":[{"internalType":"string","name":"","type":"string"},{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"isDomainBound","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"user","type":"address"},{"indexed":true,"internalType":"address","name":"contractAddress","type":"address"},{"indexed":false,"internalType":"uint256","name":"tokenId","type":"uint256"},{"indexed":false,"internalType":"string","name":"domainName","type":"string"}],"name":"DomainBound","type":"event"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"user","type":"address"},{"indexed":true,"internalType":"address","name":"contractAddress","type":"address"},{"indexed":false,"internalType":"uint256","name":"tokenId","type":"uint256"},{"indexed":false,"internalType":"string","name":"domainName","type":"string"}],"name":"DomainUnbound","type":"event"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"user","type":"address"},{"indexed":true,"internalType":"address","name":"contractAddress","type":"address"},{"indexed":false,"internalType":"uint256","name":"tokenId","type":"uint256"},{"indexed":false,"internalType":"string","name":"domainName","type":"string"}],"name":"Parsed","type":"event"},
+            {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"tokenBoundBy","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"user","type":"address"}],"name":"addressToTokenId","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
+        ];
+
+        const tokenContractABI = [
+            {"inputs":[{"internalType":"uint256","name":"_price","type":"uint256"},{"internalType":"uint256","name":"_amountPerUnits","type":"uint256"},{"internalType":"uint256","name":"totalSupply","type":"uint256"},{"internalType":"address","name":"_luncher","type":"address"},{"internalType":"address","name":"_uniswapRouter","type":"address"},{"internalType":"address","name":"_uniswapFactory","type":"address"},{"internalType":"string","name":"_name","type":"string"},{"internalType":"string","name":"_symbol","type":"string"},{"internalType":"uint256","name":"_eachAddressLimitEthers","type":"uint256"}],"stateMutability":"nonpayable","type":"constructor"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"owner","type":"address"},{"indexed":true,"internalType":"address","name":"spender","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Approval","type":"event"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"ethAmount","type":"uint256"}],"name":"FairMinted","type":"event"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"ethAmount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"liquidity","type":"uint256"}],"name":"LunchEvent","type":"event"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"bnb","type":"uint256"}],"name":"RefundEvent","type":"event"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Transfer","type":"event"},
+            {"stateMutability":"payable","type":"receive"},
+            {"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"decimals","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"eachAddressLimitEthers","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"launcher","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"mintLimit","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"minted","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"price","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"amountPerUnits","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"started","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"totalSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transferFrom","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[],"name":"uniswapFactory","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"uniswapRouter","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"start","outputs":[],"stateMutability":"nonpayable","type":"function"}
+        ];
+
+        const xLayer = { chainId: 196, rpcUrl: 'https://rpc.xlayer.tech' };
+
+        async function connectWallet() {
+            if (!window.ethereum) {
+                document.getElementById('walletStatus').innerText = 'Please install MetaMask.';
+                return;
+            }
+            try {
+                web3 = new Web3(window.ethereum);
+                await window.ethereum.request({ method: 'eth_requestAccounts' });
+                const chainId = await web3.eth.getChainId();
+                if (chainId !== 196) {
+                    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xc4' }] });
+                }
+                accounts = await web3.eth.getAccounts();
+                resolverContract = new web3.eth.Contract(resolverContractABI, resolverAddress);
+                document.getElementById('walletStatus').innerText = `Connected: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`;
+                enableInputs(true);
+                fetchContractInfo();
+                fetchBalance();
+            } catch (error) {
+                document.getElementById('walletStatus').innerText = 'Failed to connect: ' + error.message;
+            }
+        }
+
+        function enableInputs(enabled) {
+            document.getElementById('domainInput').disabled = !enabled;
+            document.getElementById('tokenContract').disabled = !enabled;
+            document.getElementById('amount').disabled = !enabled;
+            document.querySelectorAll('.percent-buttons button').forEach(btn => btn.disabled = !enabled);
+            document.getElementById('mintButton').disabled = !enabled;
+        }
+
+        async function resolveAddress() {
+            if (!web3 || !accounts) {
+                document.getElementById('addressResult').innerText = 'Please connect wallet first.';
+                return;
+            }
+            const domain = document.getElementById('domainInput').value.trim();
+            if (!domain) {
+                document.getElementById('addressResult').innerText = '';
+                return;
+            }
+            try {
+                let contractAddress;
+                if (domain.endsWith('.okb')) contractAddress = '0xBf13Ed020DCF22bc8216A23A1167A5dD1fDC2D0E';
+                else if (domain.endsWith('.star')) contractAddress = '0xfD809E6c00b7ABD737C3FaDFCaFAF4b6564AF9dD';
+                else if (domain.endsWith('.xdog')) contractAddress = '0x68B6387628b4096af034c3a9de3073AB18E744C2';
+                else {
+                    document.getElementById('addressResult').innerText = 'Unsupported domain suffix.';
+                    return;
+                }
+                const address = await resolverContract.methods.getAddressByDomain(contractAddress, domain).call();
+                document.getElementById('addressResult').innerText = address ? `Resolved Address: ${address}` : 'Domain not found or not bound.';
+            } catch (error) {
+                document.getElementById('addressResult').innerText = 'Error resolving address: ' + error.message;
+            }
+        }
+
+        async function fetchContractInfo() {
+            const tokenContractAddress = document.getElementById('tokenContract').value.trim();
+            if (!web3 || !accounts || !web3.utils.isAddress(tokenContractAddress)) {
+                document.getElementById('contractInfo').innerText = 'Invalid contract address or wallet not connected.';
+                return;
+            }
+            try {
+                tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress);
+                const [name, symbol, price, amountPerUnits, mintLimit, minted, eachAddressLimitEthers, started] = await Promise.all([
+                    tokenContract.methods.name().call(),
+                    tokenContract.methods.symbol().call(),
+                    tokenContract.methods.price().call(),
+                    tokenContract.methods.amountPerUnits().call(),
+                    tokenContract.methods.mintLimit().call(),
+                    tokenContract.methods.minted().call(),
+                    tokenContract.methods.eachAddressLimitEthers().call(),
+                    tokenContract.methods.started().call()
+                ]);
+                document.getElementById('contractInfo').innerHTML = `
+                    Token: ${name} (${symbol})<br>
+                    Price: ${web3.utils.fromWei(price, 'ether')} ETH per unit<br>
+                    Tokens per Unit: ${web3.utils.fromWei(amountPerUnits, 'ether')}<br>
+                    Mint Limit: ${web3.utils.fromWei(mintLimit, 'ether')} tokens<br>
+                    Minted: ${web3.utils.fromWei(minted, 'ether')} tokens<br>
+                    Per Address Limit: ${web3.utils.fromWei(eachAddressLimitEthers, 'ether')} ETH<br>
+                    Status: ${started ? 'Started' : 'Not Started'}
+                `;
+                if (started) {
+                    document.getElementById('mintButton').disabled = true;
+                    document.getElementById('amount').disabled = true;
+                    document.querySelectorAll('.percent-buttons button').forEach(btn => btn.disabled = true);
+                    document.getElementById('transactionStatus').innerText = 'Minting has ended.';
+                }
+            } catch (error) {
+                document.getElementById('contractInfo').innerText = 'Error fetching contract info: ' + error.message;
+            }
+        }
+
+        async function fetchBalance() {
+            if (!web3 || !accounts) {
+                document.getElementById('balanceResult').innerText = 'Please connect wallet first.';
+                return;
+            }
+            const tokenContractAddress = document.getElementById('tokenContract').value.trim();
+            if (!web3.utils.isAddress(tokenContractAddress)) {
+                document.getElementById('balanceResult').innerText = 'Invalid token contract address.';
+                return;
+            }
+            try {
+                tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress);
+                const [ethBalance, tokenBalance] = await Promise.all([
+                    web3.eth.getBalance(accounts[0]),
+                    tokenContract.methods.balanceOf(accounts[0]).call()
+                ]);
+                document.getElementById('balanceResult').innerText = `ETH Balance: ${web3.utils.fromWei(ethBalance, 'ether')} ETH\nToken Balance: ${web3.utils.fromWei(tokenBalance, 'ether')} tokens`;
+            } catch (error) {
+                document.getElementById('balanceResult').innerText = 'Error fetching balance: ' + error.message;
+            }
+        }
+
+        function setPercent(percent) {
+            const balanceText = document.getElementById('balanceResult').innerText;
+            if (!balanceText.includes('ETH Balance:')) return;
+            let ethBalance = parseFloat(balanceText.split('ETH Balance: ')[1].split(' ETH')[0]);
+            let amount = (ethBalance * percent / 100).toFixed(4);
+            if (percent === 100) amount = (ethBalance - 0.0001).toFixed(4); // Reserve some ETH for gas
+            document.getElementById('amount').value = amount > 0 ? amount : 0;
+        }
+
+        async function mintTokens() {
+            if (!web3 || !accounts) {
+                document.getElementById('transactionStatus').innerText = 'Please connect wallet first.';
+                return;
+            }
+            const tokenContractAddress = document.getElementById('tokenContract').value.trim();
+            if (!web3.utils.isAddress(tokenContractAddress)) {
+                document.getElementById('transactionStatus').innerText = 'Invalid token contract address.';
+                return;
+            }
+            const amount = document.getElementById('amount').value;
+            if (!amount || amount <= 0) {
+                document.getElementById('transactionStatus').innerText = 'Please enter a valid ETH amount.';
+                return;
+            }
+            try {
+                tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress);
+                const started = await tokenContract.methods.started().call();
+                if (started) {
+                    document.getElementById('transactionStatus').innerText = 'Minting has already started.';
+                    return;
+                }
+                const price = await tokenContract.methods.price().call();
+                const eachAddressLimitEthers = await tokenContract.methods.eachAddressLimitEthers().call();
+                const tokenBalance = await tokenContract.methods.balanceOf(accounts[0]).call();
+                const amountPerUnits = await tokenContract.methods.amountPerUnits().call();
+                const ethSpent = web3.utils.fromWei(tokenBalance, 'ether') * web3.utils.fromWei(price, 'ether') / web3.utils.fromWei(amountPerUnits, 'ether');
+                const ethToSpend = parseFloat(amount);
+                if (ethSpent + ethToSpend > web3.utils.fromWei(eachAddressLimitEthers, 'ether')) {
+                    document.getElementById('transactionStatus').innerText = 'Exceeds per address ETH limit.';
+                    return;
+                }
+                const units = Math.floor(ethToSpend / web3.utils.fromWei(price, 'ether'));
+                if (units === 0) {
+                    document.getElementById('transactionStatus').innerText = 'ETH amount too low for one unit.';
+                    return;
+                }
+                const weiValue = web3.utils.toWei((units * web3.utils.fromWei(price, 'ether')).toString(), 'ether');
+                const gas = await web3.eth.estimateGas({
+                    from: accounts[0],
+                    to: tokenContractAddress,
+                    value: weiValue
+                });
+                const tx = await web3.eth.sendTransaction({
+                    from: accounts[0],
+                    to: tokenContractAddress,
+                    value: weiValue,
+                    gas: Math.floor(gas * 1.2)
+                });
+                document.getElementById('transactionStatus').innerText = `Mint successful! Tx: ${tx.transactionHash}`;
+                fetchContractInfo();
+                fetchBalance();
+            } catch (error) {
+                document.getElementById('transactionStatus').innerText = 'Mint failed: ' + error.message;
+            }
+        }
+
+        document.getElementById('connectWallet').addEventListener('click', connectWallet);
+        document.getElementById('domainInput').addEventListener('input', () => {
+            if (web3 && accounts) resolveAddress();
+        });
+        document.getElementById('tokenContract').addEventListener('input', () => {
+            if (web3 && accounts) {
+                fetchContractInfo();
+                fetchBalance();
+            }
+        });
+    </script>
+</body>
+</html>
