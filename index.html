@@ -21,6 +21,8 @@
         .deployed-contracts { margin-top: 20px; }
         .deployed-contracts div { margin-bottom: 5px; cursor: pointer; }
         .deployed-contracts div:hover { color: #00ff00; }
+        .calc-buttons { margin: 10px 0; }
+        .calc-buttons button { margin-right: 5px; }
     </style>
 </head>
 <body>
@@ -45,7 +47,12 @@
             <label for="amountPerUnits">Tokens per Unit:</label>
             <input type="number" id="amountPerUnits" placeholder="0" step="1" disabled>
             <label for="totalSupply">Total Supply (tokens):</label>
-            <input type="number" id="totalSupply" placeholder="0" step="1" disabled>
+            <input type="number" id="totalSupply" placeholder="1000000" step="1" disabled>
+            <div class="calc-buttons">
+                <button onclick="setSupplyMultiplier(1)" disabled>1x</button>
+                <button onclick="setSupplyMultiplier(2)" disabled>2x</button>
+                <button onclick="setSupplyMultiplier(5)" disabled>5x</button>
+            </div>
             <label for="launcher">Launcher Address:</label>
             <input type="text" id="launcher" placeholder="e.g., 0x..." disabled>
             <label for="uniswapRouter">Uniswap Router Address:</label>
@@ -58,6 +65,9 @@
             <input type="text" id="symbol" placeholder="e.g., JACE" disabled>
             <label for="eachAddressLimitEthers">Per Address ETH Limit:</label>
             <input type="number" id="eachAddressLimitEthers" placeholder="0.0" step="0.0001" disabled>
+            <label for="unitCount">Units for Limit Calculation:</label>
+            <input type="number" id="unitCount" placeholder="10" step="1" disabled>
+            <button id="calcLimitButton" onclick="calculateLimit()" disabled>Calculate Limit</button>
             <button id="launchButton" onclick="launchToken()" disabled>Launch Token</button>
             <div id="transactionStatus" class="status"></div>
         </div>
@@ -112,23 +122,16 @@
                 // Fetch domain name for the connected address
                 let displayText = accounts[0].slice(0, 6) + '...' + accounts[0].slice(-4); // Default to address
                 try {
-                    const supportedContracts = [
-                        { suffix: '.okb', address: '0xBf13Ed020DCF22bc8216A23A1167A5dD1fDC2D0E' },
-                        { suffix: '.star', address: '0xfD809E6c00b7ABD737C3FaDFCaFAF4b6564AF9dD' },
-                        { suffix: '.xdog', address: '0x68B6387628b4096af034c3a9de3073AB18E744C2' }
-                    ];
-                    for (const { address } of supportedContracts) {
-                        const [domainName] = await resolverContract.methods.getDomainByAddress(address, accounts[0]).call();
-                        if (domainName && domainName !== '') {
-                            displayText = domainName;
-                            break;
-                        }
+                    const [domainName] = await resolverContract.methods.getDomainByAddress(accounts[0]).call();
+                    if (domainName && domainName !== '') {
+                        displayText = domainName;
                     }
                 } catch (error) {
                     console.error('Error fetching domain:', error);
                 }
                 
                 document.getElementById('walletStatus').innerText = `Connected: ${displayText}`;
+                document.getElementById('launcher').value = accounts[0]; // Set launcher to connected address
                 enableInputs(true);
                 fetchDeployedContracts();
             } catch (error) {
@@ -148,7 +151,10 @@
             document.getElementById('name').disabled = !enabled;
             document.getElementById('symbol').disabled = !enabled;
             document.getElementById('eachAddressLimitEthers').disabled = !enabled;
+            document.getElementById('unitCount').disabled = !enabled;
+            document.getElementById('calcLimitButton').disabled = !enabled;
             document.getElementById('launchButton').disabled = !enabled;
+            document.querySelectorAll('.calc-buttons button').forEach(btn => btn.disabled = !enabled);
         }
 
         async function resolveAddress() {
@@ -162,15 +168,7 @@
                 return;
             }
             try {
-                let contractAddress;
-                if (domain.endsWith('.okb')) contractAddress = '0xBf13Ed020DCF22bc8216A23A1167A5dD1fDC2D0E';
-                else if (domain.endsWith('.star')) contractAddress = '0xfD809E6c00b7ABD737C3FaDFCaFAF4b6564AF9dD';
-                else if (domain.endsWith('.xdog')) contractAddress = '0x68B6387628b4096af034c3a9de3073AB18E744C2';
-                else {
-                    document.getElementById('addressResult').innerText = 'Unsupported domain suffix.';
-                    return;
-                }
-                const address = await resolverContract.methods.getAddressByDomain(contractAddress, domain).call();
+                const address = await resolverContract.methods.getAddressByDomain(address(0), domain).call(); // Note: contractAddress should be one of the supported contracts
                 document.getElementById('addressResult').innerText = address ? `Resolved Address: ${address}` : 'Domain not found or not bound.';
             } catch (error) {
                 document.getElementById('addressResult').innerText = 'Error resolving address: ' + error.message;
@@ -206,6 +204,18 @@
             }).catch(err => {
                 console.error('Failed to copy: ', err);
             });
+        }
+
+        function setSupplyMultiplier(multiplier) {
+            const baseSupply = 1000000; // Default base supply
+            document.getElementById('totalSupply').value = baseSupply * multiplier;
+        }
+
+        function calculateLimit() {
+            const price = parseFloat(document.getElementById('price').value) || 0;
+            const unitCount = parseInt(document.getElementById('unitCount').value) || 10;
+            const limit = price * unitCount * 0.1; // Suggest 10% of price per unit count
+            document.getElementById('eachAddressLimitEthers').value = limit.toFixed(4);
         }
 
         async function launchToken() {
